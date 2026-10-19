@@ -17,15 +17,13 @@
 
 **三个模块的关系：**
 数据源（akshare）
-│
-▼
+->
 模块三：分层 ETL 数仓（run_etl.py）
 ODS → DWD → DWS → ADS
-│
-▼
+->
 模块一：策略研究（aks_use_entire.py）
 从 ADS 读取信号，做回测验证
-│
+->
 模块二：单表 ETL（sqlite_pipeline.py）
 作为重构前的对比版本保留
 
