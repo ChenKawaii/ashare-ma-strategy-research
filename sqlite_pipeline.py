@@ -2,7 +2,7 @@ import sqlite3
 import akshare as ak
 import pandas as pd
 
-DB_PATH = 'stock_data.db'
+DB_PATH = 'stock_data_legacy.db'
 
 # ============================================================
 # 1. 建表 + 写入数据
