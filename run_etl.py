@@ -60,23 +60,21 @@ def extract_to_ods(symbols, start_date, end_date):
     for symbol in symbols:
         print(f"[ODS] 正在抽取 {symbol} ...")
 
-        # 用 stock_zh_a_hist（东方财富源），列名稳定
-        df = ak.stock_zh_a_hist(
-            symbol=symbol.replace('sh', '').replace('sz', ''),
-            period="daily",
+        # 用新浪源，避开东财的风控
+        df = ak.stock_zh_a_daily(
+            symbol=symbol,  # 新浪接口需要带 sh/sz 前缀
             start_date=start_date.replace('-', ''),
-            end_date=end_date.replace('-', ''),
-            adjust="qfq"
+            end_date=end_date.replace('-', '')
         )
 
-        # 统一列名（中文 → 英文），这是 ODS 层唯一做的“映射”，不算清洗
+        # stock_zh_a_daily 的日期列名是 'date'，不是 'trade_date'
         df = df.rename(columns={
-            '日期': 'trade_date',
-            '开盘': 'open',
-            '收盘': 'close',
-            '最高': 'high',
-            '最低': 'low',
-            '成交量': 'volume'
+            'date': 'trade_date',
+            'open': 'open',
+            'close': 'close',
+            'high': 'high',
+            'low': 'low',
+            'volume': 'volume'
         })
 
         inserted = 0
@@ -105,6 +103,58 @@ def extract_to_ods(symbols, start_date, end_date):
 
     conn.close()
 
+def build_dwd():
+    """
+    DWD(Data Warehouse Detail) 层：对 ODS 层数据进行清洗、转换，形成结构化的明细数据。
+    1. 去重：同一 symbol + trade_date 只保留最新 etl_time 的记录
+    2. 标记异常：价格 <= 0、high < low、volume < 0
+    3. 只写入有效记录
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # 删除旧表，保证每次都是全量重建 DWD 层
+    cursor.execute('DROP TABLE IF EXISTS dwd_daily_price')
+    # 创建新表
+    cursor.execute('''
+        CREATE TABLE dwd_daily_price AS
+        WITH dedup AS (
+            SELECT *,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY symbol, trade_date
+                       ORDER BY etl_time DESC
+                   ) AS rn
+            FROM ods_daily_price
+        ),
+        flagged AS (
+            SELECT *,
+                   CASE
+                       WHEN close <= 0 OR open <= 0 OR high <= 0 OR low <= 0 THEN 1
+                       WHEN high < low THEN 1
+                       WHEN volume < 0 THEN 1
+                       ELSE 0
+                   END AS is_invalid
+            FROM dedup
+            WHERE rn = 1
+        )
+        SELECT symbol, trade_date, open, high, low, close, volume, etl_time
+        FROM flagged
+        WHERE is_invalid = 0
+    ''')
+
+    conn.commit()
+
+    # 打印 DWD 层的记录数
+    cursor.execute('SELECT COUNT(*) FROM ods_daily_price')
+    ods_cnt = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM dwd_daily_price')
+    dwd_cnt = cursor.fetchone()[0]
+
+    print(f"[DWD] ODS 原始记录: {ods_cnt} 条")
+    print(f"[DWD] DWD 有效记录: {dwd_cnt} 条")
+    print(f"[DWD] 被过滤/去重: {ods_cnt - dwd_cnt} 条")
+
+    conn.close()
 # ============================================================
 # 主程序
 # ============================================================
@@ -113,7 +163,11 @@ def main():
     start_date = '2023-01-01'
     end_date = '2026-01-01'
 
+    # ODS 层：抽取 + 加载
     extract_to_ods(symbols, start_date, end_date)
+
+    # DWD 层：清洗
+    build_dwd()
 
 
 if __name__ == '__main__':
