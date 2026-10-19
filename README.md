@@ -1,4 +1,3 @@
-# 无标题
 
 # **A股量化策略研究与数据管道**
 
@@ -317,6 +316,203 @@ ORDER BY trading_days DESC
 | sh600519 | 2023-02-27 | 1810.41 | 1823.88 | 1828.35 | 死叉 |
 | ... | ... | ... | ... | ... | ... |
 
+
+---
+
+## 模块三：ETL 数仓（ODS → DWD → DWS → ADS）
+ 
+### 为什么做这个模块
+
+模块一（策略研究）和模块二（单表 ETL）都是"从原始数据直接算到结果"，逻辑混在一起。实际工作中，金融数据通常要经过分层加工：原始数据先原样落地，再清洗，再汇总，最后产出分析结果。这个模块把之前的单表逻辑重构为 **ODS → DWD → DWS → ADS 四层数仓**，演示金融行情数据的标准 ETL 流程。
+
+### 分层架构
+
+数据源（akshare / 新浪财经）
+│
+▼
+┌─────────────────────────────────────────┐
+│ ODS 操作数据存储层 │
+│ ods_daily_price │
+│ 原样存储原始数据，带 etl_time 追溯 │
+└──────────────────┬──────────────────────┘
+│ 去重 + 异常值标记
+▼
+┌─────────────────────────────────────────┐
+│ DWD 明细数据层 │
+│ dwd_daily_price │
+│ 每只股票每天唯一一条有效记录 │
+└──────────────────┬──────────────────────┘
+│ 窗口函数算均线、波动率
+▼
+┌─────────────────────────────────────────┐
+│ DWS 汇总数据层 │
+│ dws_stock_daily_summary │
+│ 每行附加 MA5、MA20、日波动率、量比 │
+└──────────────────┬──────────────────────┘
+│ LAG 标记信号 + GROUP BY 统计
+▼
+┌─────────────────────────────────────────┐
+│ ADS 应用数据层 │
+│ ads_golden_cross_signal（金叉死叉信号） │
+│ ads_stock_summary（区间统计） │
+└─────────────────────────────────────────┘
+
+### 各层核心 SQL
+
+#### ODS 层：原样存储
+
+```sql
+CREATE TABLE IF NOT EXISTS ods_daily_price (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    open REAL, high REAL, low REAL, close REAL, volume REAL,
+    etl_time TEXT NOT NULL,
+    UNIQUE(symbol, trade_date, etl_time)
+);
+```
+
+ODS 层不做清洗，只做列名映射（中文 → 英文）和 etl_time 记录。多次抽取会累积重复记录，去重是 DWD 层的事。
+
+
+#### DWD 层：去重 + 异常值标记
+```sql
+CREATE TABLE dwd_daily_price AS
+WITH dedup AS (
+    SELECT *,
+           ROW_NUMBER() OVER (
+               PARTITION BY symbol, trade_date
+               ORDER BY etl_time DESC
+           ) AS rn
+    FROM ods_daily_price
+),
+flagged AS (
+    SELECT *,
+           CASE
+               WHEN close <= 0 OR open <= 0 OR high <= 0 OR low <= 0 THEN 1
+               WHEN high < low THEN 1
+               WHEN volume < 0 THEN 1
+               ELSE 0
+           END AS is_invalid
+    FROM dedup
+    WHERE rn = 1
+)
+SELECT symbol, trade_date, open, high, low, close, volume, etl_time
+FROM flagged
+WHERE is_invalid = 0;
+```
+
+ROW_NUMBER() OVER (PARTITION BY symbol, trade_date ORDER BY etl_time DESC)：每只股票每天只保留最新一次抽取
+
+CASE WHEN：标记异常值而不是直接过滤，保留"为什么被过滤"的信息
+
+
+#### DWS 层：窗口函数算均线
+```sql
+CREATE TABLE dws_stock_daily_summary AS
+WITH base AS (
+    SELECT symbol, trade_date, close, high, low, volume
+    FROM dwd_daily_price
+),
+ma_calc AS (
+    SELECT
+        symbol, trade_date, close, high, low, volume,
+        AVG(close) OVER (
+            PARTITION BY symbol ORDER BY trade_date
+            ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+        ) AS ma5,
+        AVG(close) OVER (
+            PARTITION BY symbol ORDER BY trade_date
+            ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+        ) AS ma20,
+        AVG(volume) OVER (
+            PARTITION BY symbol ORDER BY trade_date
+            ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+        ) AS vol_ma20
+    FROM base
+)
+SELECT
+    symbol, trade_date, close,
+    ROUND(ma5, 2) AS ma5,
+    ROUND(ma20, 2) AS ma20,
+    ROUND((high - low) / close, 4) AS daily_volatility,
+    ROUND(volume / vol_ma20, 4) AS volume_ratio
+FROM ma_calc;
+```
+
+DWS 保留每天的明细行（2908 条 = 4 只股票 × 727 天），只是在每行上附加计算字段。用 AVG() OVER (ROWS BETWEEN N PRECEDING AND CURRENT ROW) 而不是 GROUP BY，因为 GROUP BY 会把多行合并成一行，丢失每日明细。
+
+
+#### ADS 层：LAG 标记金叉死叉 + GROUP BY 统计
+```sql
+-- 表1：金叉死叉信号
+CREATE TABLE ads_golden_cross_signal AS
+WITH signal_calc AS (
+    SELECT
+        symbol, trade_date, close, ma5, ma20,
+        LAG(ma5) OVER (PARTITION BY symbol ORDER BY trade_date) AS prev_ma5,
+        LAG(ma20) OVER (PARTITION BY symbol ORDER BY trade_date) AS prev_ma20
+    FROM dws_stock_daily_summary
+)
+SELECT
+    symbol, trade_date, close, ma5, ma20,
+    CASE
+        WHEN prev_ma5 IS NULL OR prev_ma20 IS NULL THEN NULL
+        WHEN prev_ma5 <= prev_ma20 AND ma5 > ma20 THEN '金叉'
+        WHEN prev_ma5 >= prev_ma20 AND ma5 < ma20 THEN '死叉'
+        ELSE NULL
+    END AS signal
+FROM signal_calc
+WHERE signal IS NOT NULL;
+
+-- 表2：每只股票区间统计
+CREATE TABLE ads_stock_summary AS
+SELECT
+    symbol,
+    COUNT(*) AS trading_days,
+    MIN(trade_date) AS first_date,
+    MAX(trade_date) AS last_date,
+    ROUND(MIN(close), 2) AS min_close,
+    ROUND(MAX(close), 2) AS max_close,
+    ROUND(AVG(close), 2) AS avg_close,
+    ROUND((MAX(close) - MIN(close)) / MIN(close) * 100, 2) AS range_pct
+FROM dws_stock_daily_summary
+GROUP BY symbol;
+```
+
+运行结果
+[DWD] ODS 原始记录: 5816 条
+[DWD] DWD 有效记录: 2908 条
+[DWD] 被过滤/去重: 2908 条
+[DWS] DWD 明细记录: 2908 条
+[DWS] DWS 汇总记录: 2908 条
+[ADS] 金叉死叉信号记录: 195 条
+[ADS] 股票区间统计记录: 4 条
+
+
+数据质量验证：
+
+检查项	结果
+DWD 去重后记录数	2908 = 4 只股票 × 727 天 ✅
+金叉/死叉数量	招行 21/21、茅台 26/26、五粮液 21/21、比亚迪 30/29 ✅
+信号交替	金叉 → 死叉 → 金叉 → 死叉，无连续同向信号 ✅
+ADS 区间统计结果：
+
+symbol	trading_days	first_date	last_date	min_close	max_close	avg_close	range_pct
+sh600036	727	2023-01-03	2025-12-31	27.03	48.24	36.80	78.47%
+sh600519	727	2023-01-03	2025-12-31	1261.00	1912.90	1604.48	51.70%
+sz000858	727	2023-01-03	2025-12-31	105.94	217.60	145.10	105.40%
+sz002594	727	2023-01-03	2025-12-31	92.70	405.00	242.69	336.89%
+设计要点
+分层职责清晰：ODS 只存，DWD 清洗，DWS 汇总，ADS 出结果。每层只做一件事，出问题时可以逐层排查。
+
+幂等性：每层用 DROP TABLE IF EXISTS + CREATE TABLE AS 重建，跑多少次结果一致。
+
+可追溯：ODS 的 etl_time 记录每次抽取时间，DWD 保留最新一次，可以追溯数据来源。
+
+SQL 与 Pandas 的适用场景：数据存储在数仓时用 SQL 在库内计算，避免拉全量数据到内存；复杂策略回测用 Pandas 逐行模拟交易。两者互补，不是替代关系。
+
+
 ### **SQL vs Pandas 的适用场景**
 
 | **场景** | **推荐方式** | **原因** |
@@ -326,8 +522,6 @@ ORDER BY trading_days DESC
 | **指标计算（均线/RSI）** | SQL 或 Pandas | SQL 窗口函数更简洁；Pandas 更灵活 |
 | **多表关联** | SQL | JOIN 在数据库层完成，效率更高 |
 | **参数敏感性分析** | Pandas | 需要循环多组参数，Python 更方便 |
-
----
 
 ## **🧠 核心结论与能力展示**
 

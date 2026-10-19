@@ -3,26 +3,30 @@ import pandas as pd
 
 conn = sqlite3.connect('stock_data.db')
 
-# 每只股票的有效记录数
-df = pd.read_sql_query('''
-    SELECT symbol,
-           COUNT(*) AS cnt,
-           MIN(trade_date) AS first_date,
-           MAX(trade_date) AS last_date,
-           MIN(etl_time) AS earliest_etl,
-           MAX(etl_time) AS latest_etl
-    FROM dwd_daily_price
-    GROUP BY symbol
+# 1. 每只股票的信号数量
+signal_cnt = pd.read_sql_query('''
+    SELECT symbol, signal, COUNT(*) AS cnt
+    FROM ads_golden_cross_signal
+    GROUP BY symbol, signal
+    ORDER BY symbol, signal
 ''', conn)
-print(df.to_string(index=False))
+print("各股票金叉/死叉数量：")
+print(signal_cnt.to_string(index=False))
 
-# 确认没有重复
-dup = pd.read_sql_query('''
-    SELECT symbol, trade_date, COUNT(*) AS cnt
-    FROM dwd_daily_price
-    GROUP BY symbol, trade_date
-    HAVING cnt > 1
+# 2. 金叉死叉是否交替出现（不应该连续两个金叉）
+signal_seq = pd.read_sql_query('''
+    SELECT symbol, trade_date, signal
+    FROM ads_golden_cross_signal
+    WHERE symbol = 'sh600519'
+    ORDER BY trade_date
+    LIMIT 10
 ''', conn)
-print(f"\n重复记录数: {len(dup)}")
+print("\n茅台前 10 个信号：")
+print(signal_seq.to_string(index=False))
+
+# 3. 区间统计
+summary = pd.read_sql_query('SELECT * FROM ads_stock_summary', conn)
+print("\n股票区间统计：")
+print(summary.to_string(index=False))
 
 conn.close()

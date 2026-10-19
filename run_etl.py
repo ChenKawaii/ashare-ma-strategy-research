@@ -155,10 +155,184 @@ def build_dwd():
     print(f"[DWD] 被过滤/去重: {ods_cnt - dwd_cnt} 条")
 
     conn.close()
+
+def build_dws():
+    """
+    DWS(Data Warehouse Summary) 层：对 DWD 层数据进行汇总、计算指标，形成分析所需的汇总数据。
+    1. 计算每只股票的日均线（MA）
+    2. 标记金叉/死叉信号
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # 删除旧表，保证每次都是全量重建 DWS 层
+    cursor.execute('DROP TABLE IF EXISTS dws_stock_daily_summary')
+    # 创建新表
+    cursor.execute('''
+        CREATE TABLE dws_stock_daily_summary AS
+        WITH base AS (
+            SELECT symbol, trade_date, close, high, low, volume
+            FROM dwd_daily_price
+        ),
+        ma_calc AS (
+            SELECT
+                symbol,
+                trade_date,
+                close,
+                high,
+                low,
+                volume,
+                AVG(close) OVER (
+                    PARTITION BY symbol
+                    ORDER BY trade_date
+                    ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+                ) AS ma5,
+                AVG(close) OVER (
+                    PARTITION BY symbol
+                    ORDER BY trade_date
+                    ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                ) AS ma20,
+                AVG(volume) OVER (
+                    PARTITION BY symbol
+                    ORDER BY trade_date
+                    ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                ) AS vol_ma20
+            FROM base
+        )
+        SELECT
+            symbol,
+            trade_date,
+            close,
+            ROUND(ma5, 2) AS ma5,
+            ROUND(ma20, 2) AS ma20,
+            ROUND((high - low) / close, 4) AS daily_volatility,
+            ROUND(volume / vol_ma20, 4) AS volume_ratio
+        FROM ma_calc
+    ''')
+
+    conn.commit()
+
+    cursor.execute('SELECT COUNT(*) FROM dwd_daily_price')
+    dwd_cnt = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM dws_stock_daily_summary')
+    dws_cnt = cursor.fetchone()[0]
+
+    print(f"[DWS] DWD 明细记录: {dwd_cnt} 条")
+    print(f"[DWS] DWS 汇总记录: {dws_cnt} 条")
+
+    conn.close()
+
+def build_ads():
+    """
+    ADS(Application Data Store) 层：对 DWS 层数据进行进一步汇总、计算指标，形成应用所需的分析数据。
+    1. ads_golden_cross_signal：金叉死叉信号
+    2. ads_stock_summary：每只股票的区间统计
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # ---- ADS 表1：金叉死叉信号 ----
+    cursor.execute('DROP TABLE IF EXISTS ads_golden_cross_signal')
+    cursor.execute('''
+        CREATE TABLE ads_golden_cross_signal AS
+        WITH signal_calc AS (
+            SELECT
+                symbol,
+                trade_date,
+                close,
+                ma5,
+                ma20,
+                LAG(ma5) OVER (PARTITION BY symbol ORDER BY trade_date) AS prev_ma5,
+                LAG(ma20) OVER (PARTITION BY symbol ORDER BY trade_date) AS prev_ma20
+            FROM dws_stock_daily_summary
+        )
+        SELECT
+            symbol,
+            trade_date,
+            close,
+            ma5,
+            ma20,
+            CASE
+                WHEN prev_ma5 IS NULL OR prev_ma20 IS NULL THEN NULL
+                WHEN prev_ma5 <= prev_ma20 AND ma5 > ma20 THEN '金叉'
+                WHEN prev_ma5 >= prev_ma20 AND ma5 < ma20 THEN '死叉'
+                ELSE NULL
+            END AS signal
+        FROM signal_calc
+        WHERE signal IS NOT NULL
+    ''')
+
+    # ---- ADS 表2：每只股票的区间统计 ----
+    cursor.execute('DROP TABLE IF EXISTS ads_stock_summary')
+    cursor.execute('''
+        CREATE TABLE ads_stock_summary AS
+        SELECT
+            symbol,
+            COUNT(*) AS trading_days,
+            MIN(trade_date) AS first_date,
+            MAX(trade_date) AS last_date,
+            ROUND(MIN(close), 2) AS min_close,
+            ROUND(MAX(close), 2) AS max_close,
+            ROUND(AVG(close), 2) AS avg_close,
+            ROUND((MAX(close) - MIN(close)) / MIN(close) * 100, 2) AS range_pct
+        FROM dws_stock_daily_summary
+        GROUP BY symbol
+    ''')
+
+    conn.commit()
+
+    cursor.execute('SELECT COUNT(*) FROM ads_golden_cross_signal')
+    signal_cnt = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM ads_stock_summary')
+    summary_cnt = cursor.fetchone()[0]
+
+    print(f"[ADS] 金叉死叉信号记录: {signal_cnt} 条")
+    print(f"[ADS] 股票区间统计记录: {summary_cnt} 条")
+
+    conn.close()
+
+def validate():
+    """
+    验证 ADS 层的数据，确保金叉死叉信号和区间统计的正确性。
+    """
+
+    conn = sqlite3.connect('stock_data.db')
+
+    # 1. 每只股票的信号数量
+    signal_cnt = pd.read_sql_query('''
+        SELECT symbol, signal, COUNT(*) AS cnt
+        FROM ads_golden_cross_signal
+        GROUP BY symbol, signal
+        ORDER BY symbol, signal
+    ''', conn)
+    print("各股票金叉/死叉数量：")
+    print(signal_cnt.to_string(index=False))
+
+    # 2. 金叉死叉是否交替出现（不应该连续两个金叉）
+    signal_seq = pd.read_sql_query('''
+        SELECT symbol, trade_date, signal
+        FROM ads_golden_cross_signal
+        WHERE symbol = 'sh600519'
+        ORDER BY trade_date
+        LIMIT 10
+    ''', conn)
+    print("\n茅台前 10 个信号：")
+    print(signal_seq.to_string(index=False))
+
+    # 3. 区间统计
+    summary = pd.read_sql_query('SELECT * FROM ads_stock_summary', conn)
+    print("\n股票区间统计：")
+    print(summary.to_string(index=False))
+
+    conn.close()
+
 # ============================================================
 # 主程序
 # ============================================================
 def main():
+    # 如果数据库已存在，先删掉（仅用于开发阶段）
+    # if os.path.exists(DB_PATH):
+    #     os.remove(DB_PATH)
     symbols = ['sh600519', 'sz000858', 'sh600036', 'sz002594']
     start_date = '2023-01-01'
     end_date = '2026-01-01'
@@ -169,6 +343,14 @@ def main():
     # DWD 层：清洗
     build_dwd()
 
+    # DWS 层：轻度汇总
+    build_dws()
+
+    # ADS 层：面向分析的最终结果
+    build_ads()
+
+    # 验证 ADS 层的数据
+    validate()
 
 if __name__ == '__main__':
     main()
