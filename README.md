@@ -1,32 +1,48 @@
 
 # **A股量化策略研究与数据管道**
 
-> 一个从零构建的量化项目：既包含完整的策略研究流程（双均线回测、过滤条件测试、跨标的验证），也包含基于 SQLite + SQL 的金融数据管道实现。
-> 
+> 一个从零构建的量化项目：既包含完整的策略研究流程（双均线回测、过滤条件测试、跨标的验证），也包含基于 SQLite 的分层 ETL 数仓（ODS → DWD → DWS → ADS），两者构成"数据加工 → 策略验证"的完整链路。
 
 ---
 
 ## **📌 项目概述**
 
-本项目分为两个部分，分别对应量化工作中两种不同的能力：
+本项目分为三个模块，对应量化工作中三种不同的能力：
 
-| **模块** | **核心内容** | **对应能力** |
-| --- | --- | --- |
-| **策略研究** | 双均线回测、参数敏感性分析、ADX/RSI/成交量过滤条件测试、10 只股票跨标的验证 | 量化研究、策略评估、过拟合识别 |
-| **数据管道** | akshare 数据获取、SQLite 存储、SQL 窗口函数计算均线、LAG 标记金叉死叉、GROUP BY 聚合统计 | 数据开发、SQL、金融数据处理 |
+| 模块 | 核心内容 | 对应能力 |
+| :--- | :--- | :--- |
+| **模块一：策略研究** | 双均线回测、参数敏感性分析、ADX/RSI/成交量过滤条件测试、10 只股票跨标的验证 | 量化研究、策略评估、过拟合识别 |
+| **模块二：单表 ETL** | akshare 数据获取、SQLite 单表存储、SQL 窗口函数计算均线、LAG 标记金叉死叉、GROUP BY 聚合统计 | 数据开发、SQL、金融数据处理 |
+| **模块三：分层 ETL 数仓** | ODS/DWD/DWS/ADS 四层建模、去重与异常值标记、窗口函数汇总、LAG 产出信号、GROUP BY 区间统计 | 数仓建模、ETL 流程、数据质量管理 |
 
-**一句话总结**：用 Python 做策略研究，用 SQL 做数据管道，两种方式都实践过，并对比了各自的适用场景。
+**三个模块的关系：**
+数据源（akshare）
+│
+▼
+模块三：分层 ETL 数仓（run_etl.py）
+ODS → DWD → DWS → ADS
+│
+▼
+模块一：策略研究（aks_use_entire.py）
+从 ADS 读取信号，做回测验证
+│
+模块二：单表 ETL（sqlite_pipeline.py）
+作为重构前的对比版本保留
+
+
+**一句话总结**：用 Python 做策略研究，用 SQL 做数据加工，从单表 ETL 演进到分层数仓，最终让策略回测消费数仓的 ADS 层数据。三个模块不是孤立的 demo，而是一条完整的"数据工程 → 数仓 → 应用"链路。
 
 ---
 
 ## **🛠️ 技术栈**
 
-- **Python 3.10+** — 数据处理与策略回测
-- **akshare** — A 股历史行情数据获取
+- **Python 3.10+** — 数据获取、策略回测、ETL 调度
+- **akshare** — A 股历史行情数据获取（东方财富 / 新浪财经双源）
 - **pandas / numpy** — 数据清洗与向量化计算
-- **sqlite3** — 金融数据存储
-- **SQL** — 窗口函数、LAG、GROUP BY 聚合计算
+- **sqlite3** — 金融数据存储与数仓落地
+- **SQL** — 窗口函数、LAG、ROW_NUMBER、GROUP BY 等数仓加工
 - **matplotlib** — 交易信号可视化
+- **os / datetime** — 代理环境处理、ETL 时间戳
 
 ---
 
@@ -35,16 +51,26 @@
 text
 
 ```
-.
-├── aks_use_entire.py          # 策略研究：双均线回测 + 过滤条件测试
-├── sqlite_pipeline.py         # 数据管道：SQLite 存储 + SQL 计算
-├── stock_data.db              # 自动生成的数据库
-├── param_comparison_*.csv     # 各股票参数对比结果
-├── README.md                  # 项目说明
-└── CONCEPTS.md                # 金融概念解析
+├── aks_use_entire.py # 模块一：策略研究（双均线回测 + 过滤条件测试）
+├── sqlite_pipeline.py # 模块二：单表 ETL（对比版本）
+├── run_etl.py # 模块三：分层 ETL 数仓（ODS → DWD → DWS → ADS）
+├── stock_data.db # ETL 数仓数据库（ODS/DWD/DWS/ADS 四层表）
+├── stock_data_legacy.db # 单表 ETL 的旧数据库（对比用）
+├── param_comparison_*.csv # 各股票参数对比结果
+├── sh600519_茅台（消费）_trading_signals.png # 交易信号图
+├── README.md # 项目说明
+└── CONCEPTS.md # 金融概念解析
 ```
 
 ---
+
+**模块与文件对应关系：**
+
+| 模块 | 主文件 | 输出 |
+| :--- | :--- | :--- |
+| 模块一：策略研究 | `aks_use_entire.py` | 回测绩效、参数对比 CSV、信号图 PNG |
+| 模块二：单表 ETL | `sqlite_pipeline.py` | `stock_data_legacy.db`（单表 `daily_price`） |
+| 模块三：分层 ETL 数仓 | `run_etl.py` | `stock_data.db`（四层表：ODS/DWD/DWS/ADS） |
 
 ## **📈 模块一：策略研究**
 
