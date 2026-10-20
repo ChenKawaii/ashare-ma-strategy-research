@@ -1,33 +1,44 @@
 # 量化策略项目金融概念解析
 
 
-
->
->本文档整理 aks_use_entire.py 项目中涉及的核心金融概念，包括概念定义、常态计算方法，以及如何用 Python 实现。适合作为项目配套学习资料，也方便面试前快速复习。
+> 本文档整理项目中涉及的核心金融概念与数仓/ETL 概念，包括定义、常态计算方法，以及如何用 Python / SQL 实现。适合作为项目配套学习资料，也方便面试前快速复习。
 
 
 
 **📑 目录**
 
-1. 双均线策略（Dual Moving Average）
-2. 金叉与死叉（Golden Cross / Death Cross）
-3. 移动平均线（MA）
-4. ADX 趋势强度指标
-5. +DI / -DI 方向指标
-6. RSI 相对强弱指标
-7. 成交量过滤（Volume Filter）
-8. 累计收益率（Cumulative Return）
-9. 夏普比率（Sharpe Ratio）
-10. 最大回撤（Maximum Drawdown）
-11. 胜率（Win Rate）
-12. 盈亏比（Profit Factor）
-13. 交易成本（佣金 + 印花税）
-14. 前视偏差（Look-ahead Bias）
-15. 过拟合（Overfitting）
+1. [双均线策略（Dual Moving Average）](#1-双均线策略dual-moving-average)
+2. [金叉与死叉（Golden Cross / Death Cross）](#2-金叉与死叉golden-cross--death-cross)
+3. [移动平均线（MA）](#3-移动平均线ma)
+4. [ADX 趋势强度指标](#4-adx-趋势强度指标)
+5. [+DI / -DI 方向指标](#5-di--di-方向指标)
+6. [RSI 相对强弱指标](#6-rsi-相对强弱指标)
+7. [成交量过滤（Volume Filter）](#7-成交量过滤volume-filter)
+8. [累计收益率（Cumulative Return）](#8-累计收益率cumulative-return)
+9. [夏普比率（Sharpe Ratio）](#9-夏普比率sharpe-ratio)
+10. [最大回撤（Maximum Drawdown）](#10-最大回撤maximum-drawdown)
+11. [胜率（Win Rate）](#11-胜率win-rate)
+12. [盈亏比（Profit Factor）](#12-盈亏比profit-factor)
+13. [交易成本（佣金 + 印花税）](#13-交易成本佣金--印花税)
+14. [前视偏差（Look-ahead Bias）](#14-前视偏差look-ahead-bias)
+15. [过拟合（Overfitting）](#15-过拟合overfitting)
 
 ---
 
-
+### 数仓与 ETL 概念
+16. [ETL（抽取-转换-加载）](#16-etl抽取-转换-加载)
+17. [数据仓库（Data Warehouse）](#17-数据仓库data-warehouse)
+18. [ODS 层（操作数据存储层）](#18-ods-层操作数据存储层)
+19. [DWD 层（明细数据层）](#19-dwd-层明细数据层)
+20. [DWS 层（汇总数据层）](#20-dws-层汇总数据层)
+21. [ADS 层（应用数据层）](#21-ads-层应用数据层)
+22. [数仓分层的目的](#22-数仓分层的目的)
+23. [幂等性（Idempotency）](#23-幂等性idempotency)
+24. [数据质量与异常值标记](#24-数据质量与异常值标记)
+25. [窗口函数（Window Function）](#25-窗口函数window-function)
+26. [ROW_NUMBER 去重](#26-row_number-去重)
+27. [LAG 取前一行](#27-lag-取前一行)
+28. [数仓 vs 数据库 vs 数据湖](#28-数仓-vs-数据库-vs-数据湖)
 
 ## 1. 双均线策略（Dual Moving Average）
 
@@ -750,6 +761,293 @@ for symbol in ['sh600519', 'sz000858', 'sh600036']:
 
 ------
 
+## 16. ETL（抽取-转换-加载）
+### 📖 概念
+ETL = Extract（抽取）+ Transform（转换）+ Load（加载），描述数据从来源系统流向分析系统的完整过程。
+
+|  阶段  |  做什么  |  金融行情场景   | 
+| :--------- | :------------------------------------- | :----- |
+|  Extract  |  从数据源拉取原始数据  |  用 akshare 拉取 A 股日线数据  |
+|  Transform  |  清洗、标准化、聚合、计算指标  |  去重、处理缺失值、计算均线  |
+|  Load  |  写入目标存储  |  写入 SQLite 的 ODS 层表  |
+
+### 项目中的ETL流畅
+```
+E: ak.stock_zh_a_daily(...)  → 拉取原始数据
+T: SQL 去重、异常值标记、窗口函数算均线
+L: INSERT INTO ods_daily_price / CREATE TABLE dwd_... AS SELECT ...
+```
+
+⚠️ 注意事项
+ETL 不是工具，而是流程
+
+单表 ETL（sqlite_pipeline.py）和分层 ETL（run_etl.py）的区别在于是否分层
+
+
+## 17. 数据仓库（Data Warehouse）
+### 📖 概念
+数据仓库是一个专门用于分析的数据库，和业务系统分开。业务系统负责"记录发生了什么"，数仓负责"分析发生了什么、为什么发生"。
+
+### 核心特点
+面向分析：数据按主题组织，不按业务系统组织
+
+分层存储：原始数据、清洗后数据、汇总数据、分析结果分开存放
+
+历史留存：保留全量历史，支持时间维度分析
+
+不直接服务业务：数据给分析师、BI、策略研究用
+
+### ⚠️ 注意事项
+数仓不是"一个大数据库"，而是分层组织的数据体系
+
+数仓和数据库有什么区别？——数据库服务业务（OLTP），数仓服务分析（OLAP）
+
+
+## 18. ODS 层（操作数据存储层）
+### 📖 概念
+ODS（Operational Data Store）是数仓的最底层，原样存放从数据源抽取来的数据。
+
+### 核心特点
+- 不做任何清洗和转换
+
+- 结构与源系统一致
+
+- 加 etl_time 记录抽取时间
+
+- 保留全量历史，支持回溯
+
+### SQL 实现（项目中的 ODS 表）
+```sql
+CREATE TABLE IF NOT EXISTS ods_daily_price (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    open REAL, high REAL, low REAL, close REAL, volume REAL,
+    etl_time TEXT NOT NULL,
+    UNIQUE(symbol, trade_date, etl_time)
+);
+```
+
+### ⚠️ 注意事项
+- 用 ROW_NUMBER() 去重，保留最新一次抽取
+
+- 用 CASE WHEN 标记异常值而不是直接过滤，保留"为什么被过滤"的信息
+
+- DWD 是可重算的，每次从 ODS 全量重建
+
+## 20. DWS 层（汇总数据层）
+### 📖 概念
+DWS（Data Warehouse Summary）是按主题聚合的汇总数据，为上层分析做准备。
+
+### 核心特点
+- 从 DWD 聚合而来
+
+- 按维度（股票、日期）做轻度汇总
+
+- 计算常用指标（均线、波动率、成交量比率）
+
+- 数据粒度比 DWD 粗，但比 ADS 细
+
+```sql
+CREATE TABLE dws_stock_daily_summary AS
+WITH base AS (
+    SELECT symbol, trade_date, close, high, low, volume
+    FROM dwd_daily_price
+),
+ma_calc AS (
+    SELECT
+        symbol, trade_date, close, high, low, volume,
+        AVG(close) OVER (
+            PARTITION BY symbol ORDER BY trade_date
+            ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+        ) AS ma5,
+        AVG(close) OVER (
+            PARTITION BY symbol ORDER BY trade_date
+            ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+        ) AS ma20,
+        AVG(volume) OVER (
+            PARTITION BY symbol ORDER BY trade_date
+            ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+        ) AS vol_ma20
+    FROM base
+)
+SELECT
+    symbol, trade_date, close,
+    ROUND(ma5, 2) AS ma5,
+    ROUND(ma20, 2) AS ma20,
+    ROUND((high - low) / close, 4) AS daily_volatility,
+    ROUND(volume / vol_ma20, 4) AS volume_ratio
+FROM ma_calc;
+```
+
+### ⚠️ 注意事项
+- DWS 用窗口函数而不是 GROUP BY，因为要保留每日明细行
+
+- DWS 记录数与 DWD 相同（2908 条），只是附加了计算字段
+
+## 21. ADS 层（应用数据层）
+### 📖 概念
+ADS（Application Data Service）是面向具体分析场景的最终结果表。
+
+### 核心特点
+- 从 DWS 加工而来
+
+- 直接服务分析需求（报表、策略、看板）
+
+- 数据粒度最粗，指标最完整
+
+```sql
+CREATE TABLE ads_golden_cross_signal AS
+WITH signal_calc AS (
+    SELECT
+        symbol, trade_date, close, ma5, ma20,
+        LAG(ma5) OVER (PARTITION BY symbol ORDER BY trade_date) AS prev_ma5,
+        LAG(ma20) OVER (PARTITION BY symbol ORDER BY trade_date) AS prev_ma20
+    FROM dws_stock_daily_summary
+)
+SELECT
+    symbol, trade_date, close, ma5, ma20,
+    CASE
+        WHEN prev_ma5 IS NULL OR prev_ma20 IS NULL THEN NULL
+        WHEN prev_ma5 <= prev_ma20 AND ma5 > ma20 THEN '金叉'
+        WHEN prev_ma5 >= prev_ma20 AND ma5 < ma20 THEN '死叉'
+        ELSE NULL
+    END AS signal
+FROM signal_calc
+WHERE signal IS NOT NULL;
+```
+
+### ⚠️ 注意事项
+ADS 表是面向分析的，只存有信号的日期
+
+口径统一：金叉死叉的定义只写一次，所有下游应用共用
+
+
+## 22. 数仓分层的目的
+分层的三个核心价值
+- 可追溯：数据从 ADS 出问题时，可以逐层往上查，定位是清洗逻辑错了还是聚合逻辑错了
+
+- 可复用：DWD 是清洗后的干净数据，多个 DWS 表可以共用同一个 DWD，不用重复清洗
+
+- 可维护：某一层的逻辑变更不影响其他层，比如修改清洗规则只需改 DWD，ADS 不用动
+
+## 23. 幂等性（Idempotency）
+
+### 📖 概念
+幂等性指同样的输入，跑多少次结果都一样。这是数仓 ETL 的重要原则。
+
+
+```sql
+DROP TABLE IF EXISTS dwd_daily_price;
+CREATE TABLE dwd_daily_price AS SELECT ... FROM ods_daily_price;
+```
+
+每次从 ODS 全量重建 DWD，跑多少次结果一致。
+
+
+## 24. 数据质量与异常值标记
+### 📖 概念
+数据质量处理包括：去重、类型标准化、异常值识别、缺失值处理。
+
+```sql
+CASE
+    WHEN close <= 0 OR open <= 0 OR high <= 0 OR low <= 0 THEN 1
+    WHEN high < low THEN 1
+    WHEN volume < 0 THEN 1
+    ELSE 0
+END AS is_invalid
+```
+
+### ⚠️ 注意事项
+- 先标记再过滤，保留"为什么被过滤"的信息
+
+- 如果直接 WHERE close > 0 过滤掉，就不知道被过滤了多少条、原因是什么
+
+## 25. 窗口函数（Window Function）
+### 📖 概念
+窗口函数是在保留明细行的同时做聚合计算。与 GROUP BY 的区别：
+
+- GROUP BY 是聚合，会把多行合并成一行
+
+- 窗口函数保留明细行，在每行上附加计算结果
+
+```sql
+AVG(close) OVER (
+    PARTITION BY symbol
+    ORDER BY trade_date
+    ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+) AS ma5
+```
+
+关键点：
+
+- PARTITION BY symbol：每只股票独立计算
+
+- ORDER BY trade_date：按时间排序
+
+- ROWS BETWEEN 4 PRECEDING AND CURRENT ROW：取当前行 + 前 4 行 = 5 日均线
+
+- 面试常问："窗口函数和 GROUP BY 有什么区别？"——答"GROUP BY 合并行，窗口函数保留明细行"
+
+
+
+## 26. ROW_NUMBER 去重
+### 📖 概念
+ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...) 给每个分组内的行编号，配合 WHERE rn = 1 实现去重。
+
+```sql
+WITH dedup AS (
+    SELECT *,
+           ROW_NUMBER() OVER (
+               PARTITION BY symbol, trade_date
+               ORDER BY etl_time DESC
+           ) AS rn
+    FROM ods_daily_price
+)
+SELECT * FROM dedup WHERE rn = 1;
+```
+
+### ⚠️ 注意事项
+- ORDER BY etl_time DESC 保证保留最新一次抽取
+
+- 这是数仓"去重取最新"的标准写法，面试高频考点
+
+
+## 27. LAG 取前一行
+
+### 📖 概念
+LAG(column) OVER (PARTITION BY ... ORDER BY ...) 取当前行之前某一行的值，常用于计算环比、标记交叉。
+```sql
+LAG(ma5) OVER (PARTITION BY symbol ORDER BY trade_date) AS prev_ma5
+```
+
+配合 CASE WHEN 判断交叉：
+```sql
+CASE
+    WHEN prev_ma5 <= prev_ma20 AND ma5 > ma20 THEN '金叉'
+    WHEN prev_ma5 >= prev_ma20 AND ma5 < ma20 THEN '死叉'
+END AS signal
+```
+
+### ⚠️ 注意事项
+- LAG() 等价于 Python 的 df['col'].shift(1)
+
+- 第一行没有前一行，LAG() 返回 NULL，需要特殊处理
+
+
+## 28. 数仓 vs 数据库 vs 数据湖
+### 📖 概念
+|  类型  |  用途  |  特点  |
+| :--------- | :------------------------------------- | :----- |
+|  数据库（OLTP）  |  服务业务系统  |  高并发、事务、实时读写  |
+|  数据仓库（OLAP）  |  服务分析  |  批量写入、复杂查询、历史留存  |
+|  数据湖  |  存储原始数据  |  存原始格式（JSON/CSV/图片），schema-on-read  |
+
+### ⚠️ 注意事项
+- 面试常问："数仓和数据库有什么区别？"——答"数据库服务业务，数仓服务分析"
+
+- 数据湖和数仓的区别："数据湖存原始数据，数仓存加工后的结构化数据"
+
 ## 📚 附录：核心指标速查表
 
 | 指标       | 公式                                   | 理想值 | Python 关键代码                                         |
@@ -768,7 +1066,7 @@ for symbol in ['sh600519', 'sz000858', 'sh600036']:
 
 - Welles Wilder, *New Concepts in Technical Trading Systems*（ADX/RSI 原始文献）
 - Ernest Chan, *Quantitative Trading*（量化交易入门）
-- 项目中 `aks_use_entire.py` 完整代码
+- 项目中`aks_use_entire.py`、`sqlite_pipeline.py`、`run_etl.py `完整代码
 
 ------
 
