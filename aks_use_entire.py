@@ -52,7 +52,7 @@ def gen_trade_signal(df, short_window=5, long_window=20) -> pd.DataFrame:
     df['Position'] = df['Signal'].diff()  # +1 买入，-1 卖出
 
     # +DM, -DM, ADX指标计算
-    # high_diff 相当于今天的最高价减去昨天的最高价，low_diff 相当于昨天的最低价减去今天的最低价
+    # high_diff 相当于今天的最高价减去昨天的最高价
     df['high_diff'] = df['high'].diff()
     # low_diff 相当于昨天的最低价减去今天的最低价
     df['low_diff'] = -df['low'].diff()

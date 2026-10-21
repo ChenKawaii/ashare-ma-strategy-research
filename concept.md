@@ -835,6 +835,56 @@ CREATE TABLE IF NOT EXISTS ods_daily_price (
 
 - DWD 是可重算的，每次从 ODS 全量重建
 
+
+## 19. DWD 层（明细数据层）
+### 📖 概念
+DWD（Data Warehouse Detail）是清洗后的明细数据，是数仓的核心明细层。
+
+### 核心特点
+- 从 ODS 加工而来
+
+- 做数据质量处理：去重、类型标准化、异常值标记
+
+- 保留行级明细，不聚合
+
+- 是后续所有汇总层的唯一数据来源
+
+
+**SQL 实现（项目中的 DWD 去重 + 异常值标记）**
+```sql
+CREATE TABLE dwd_daily_price AS
+WITH dedup AS (
+    SELECT *,
+           ROW_NUMBER() OVER (
+               PARTITION BY symbol, trade_date
+               ORDER BY etl_time DESC
+           ) AS rn
+    FROM ods_daily_price
+),
+flagged AS (
+    SELECT *,
+           CASE
+               WHEN close <= 0 OR open <= 0 OR high <= 0 OR low <= 0 THEN 1
+               WHEN high < low THEN 1
+               WHEN volume < 0 THEN 1
+               ELSE 0
+           END AS is_invalid
+    FROM dedup
+    WHERE rn = 1
+)
+SELECT symbol, trade_date, open, high, low, close, volume, etl_time
+FROM flagged
+WHERE is_invalid = 0;
+
+```
+
+### ⚠️ 注意事项
+- 用 ROW_NUMBER() 去重，保留最新一次抽取
+
+- 用 CASE WHEN 标记异常值而不是直接过滤，保留"为什么被过滤"的信息
+
+- DWD 是可重算的，每次从 ODS 全量重建
+
 ## 20. DWS 层（汇总数据层）
 ### 📖 概念
 DWS（Data Warehouse Summary）是按主题聚合的汇总数据，为上层分析做准备。
