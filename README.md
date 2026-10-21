@@ -28,7 +28,7 @@ ODS → DWD → DWS → ADS
 作为重构前的对比版本保留
 
 
-**一句话总结**：用 Python 做策略研究，用 SQL 做数据加工，从单表 ETL 演进到分层数仓，最终让策略回测消费数仓的 ADS 层数据。三个模块不是孤立的 demo，而是一条完整的"数据工程 → 数仓 → 应用"链路。
+**一句话总结**：用 Python 做策略研究，用 SQL 做数据加工，从单表 ETL 演进到分层数仓，最终让策略回测消费数仓的 ADS 层数据。三个模块是一条完整的"数据工程 → 数仓 → 应用"链路。
 
 ---
 
@@ -54,8 +54,10 @@ text
 ├── run_etl.py # 模块三：分层 ETL 数仓（ODS → DWD → DWS → ADS）
 ├── stock_data.db # ETL 数仓数据库（ODS/DWD/DWS/ADS 四层表）
 ├── stock_data_legacy.db # 单表 ETL 的旧数据库（对比用）
-├── param_comparison_*.csv # 各股票参数对比结果
-├── sh600519_茅台（消费）_trading_signals.png # 交易信号图
+|—— csv_folder # 存csv的文件夹
+ ├── param_comparison_*.csv # 各股票参数对比结果
+|—— png_folder # 存png的文件夹
+ ├── *_trading_signals.png # 各股票交易信号图
 ├── README.md # 项目说明
 └── CONCEPTS.md # 金融概念解析
 ```
