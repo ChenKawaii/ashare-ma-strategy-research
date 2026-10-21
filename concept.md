@@ -107,7 +107,7 @@ def dual_ma_signal(df, short_window=5, long_window=20):
 
 python
 
-```
+```python
 # 方法1：用 Signal.diff() 自动捕捉交叉点
 df['Signal'] = np.where(df['MA5'] > df['MA20'], 1, 0)
 df['Position'] = df['Signal'].diff()
@@ -154,7 +154,7 @@ df['Cross'] = np.sign(df['MA5'] - df['MA20']).diff()
 
 python
 
-```
+```python
 # SMA
 df['MA20'] = df['close'].rolling(window=20).mean()
 
@@ -220,7 +220,7 @@ ADX 的计算分为五步：
 
 python
 
-```
+```python
 def calc_adx(df, period=14):
     df = df.copy()
     
@@ -282,7 +282,7 @@ def calc_adx(df, period=14):
 
 python
 
-```
+```python
 df['+DI'] = 100 * (df['+DM_smooth'] / df['TR_smooth'])
 df['-DI'] = 100 * (df['-DM_smooth'] / df['TR_smooth'])
 
@@ -336,7 +336,7 @@ RSI（Relative Strength Index，相对强弱指标）由 Welles Wilder 提出，
 
 python
 
-```
+```python
 def calc_rsi(df, period=14):
     df = df.copy()
     df['change'] = df['close'].diff()
@@ -379,7 +379,7 @@ def calc_rsi(df, period=14):
 
 python
 
-```
+```python
 df['Volume_MA20'] = df['volume'].rolling(window=20).mean()
 df['Volume_Filter'] = df['volume'] > 1.5 * df['Volume_MA20']
 
@@ -416,7 +416,7 @@ buy_condition = base_condition and df['Volume_Filter']
 
 python
 
-```
+```python
 df['Total Assets'] = total_assets  # 逐日总资产列表
 df['Cumulative Return'] = df['Total Assets'] / initial_cash - 1
 
@@ -462,7 +462,7 @@ final_return = df['Cumulative Return'].iloc[-1]
 
 python
 
-```
+```python
 daily_ret = df['Total Assets'].pct_change()
 annual_ret = daily_ret.mean() * 252
 annual_vol = daily_ret.std() * np.sqrt(252)
@@ -502,7 +502,7 @@ sharpe = (annual_ret - risk_free_rate) / annual_vol if annual_vol != 0 else np.n
 
 python
 
-```
+```python
 running_max = df['Total Assets'].cummax()
 drawdown_pct = (df['Total Assets'] - running_max) / running_max
 max_dd = drawdown_pct.min()  # 返回负数，如 -0.1213
@@ -542,7 +542,7 @@ print(f"最大回撤: {max_dd * 100:.2f}%")  # 输出 -12.13%
 
 python
 
-```
+```python
 win_count, loss_count = 0, 0
 pair_count = min(len(buy_trades), len(sell_trades))
 
@@ -595,7 +595,7 @@ win_rate = win_count / pair_count if pair_count > 0 else np.nan
 
 python
 
-```
+```python
 total_win, total_loss = 0, 0
 
 for i in range(pair_count):
@@ -644,7 +644,7 @@ profit_factor = total_win / total_loss if total_loss != 0 else np.nan
 
 python
 
-```
+```python
 commission_rate = 0.0003   # 佣金 0.03%
 stamp_duty_rate = 0.001    # 印花税 0.1%
 
@@ -687,7 +687,7 @@ cash += hold * price * (1 - commission_rate - stamp_duty_rate)
 
 python
 
-```
+```python
 # ❌ 错误：用当天信号当天成交
 if df['Signal'].iloc[i] == 1:
     buy_price = df['close'].iloc[i]  # 前视偏差
@@ -736,7 +736,7 @@ df['Signal_Lagged'] = df['Signal'].shift(1)
 
 python
 
-```
+```python
 # 多区间验证
 for start, end in [('2020-01-01', '2023-01-01'), 
                    ('2023-01-01', '2026-01-01')]:
@@ -789,16 +789,16 @@ ETL 不是工具，而是流程
 数据仓库是一个专门用于分析的数据库，和业务系统分开。业务系统负责"记录发生了什么"，数仓负责"分析发生了什么、为什么发生"。
 
 ### 核心特点
-面向分析：数据按主题组织，不按业务系统组织
+- 面向分析：数据按主题组织，不按业务系统组织
 
-分层存储：原始数据、清洗后数据、汇总数据、分析结果分开存放
+- 分层存储：原始数据、清洗后数据、汇总数据、分析结果分开存放
 
-历史留存：保留全量历史，支持时间维度分析
+- 历史留存：保留全量历史，支持时间维度分析
 
-不直接服务业务：数据给分析师、BI、策略研究用
+- 不直接服务业务：数据给分析师、BI、策略研究用
 
 ### ⚠️ 注意事项
-数仓不是"一个大数据库"，而是分层组织的数据体系
+**数仓不是"一个大数据库"，而是分层组织的数据体系**
 
 数仓和数据库有什么区别？——数据库服务业务（OLTP），数仓服务分析（OLAP）
 
@@ -918,7 +918,7 @@ WHERE signal IS NOT NULL;
 ```
 
 ### ⚠️ 注意事项
-ADS 表是面向分析的，只存有信号的日期
+- ADS 表是面向分析的，只存有信号的日期
 
 口径统一：金叉死叉的定义只写一次，所有下游应用共用
 
