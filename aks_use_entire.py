@@ -86,6 +86,8 @@ def gen_trade_signal(df, short_window=5, long_window=20) -> pd.DataFrame:
     # 其中 N 是平滑周期，通常取 14。
 
     period = 14
+    # ewm(alpha=1/period, adjust=False) 是 Pandas 提供的指数加权函数，类似于 Wilder 平滑。
+    # St = (1 - α) * St-1 + α * Xt，其中 α = 1/N，N 是平滑周期，Xt 是当前值，St 是平滑值。
     df['+DM_smooth'] = df['+DM'].ewm(alpha=1/period, adjust=False).mean()
     df['-DM_smooth'] = df['-DM'].ewm(alpha=1/period, adjust=False).mean()
     df['TR_smooth'] = df['TR'].ewm(alpha=1/period, adjust=False).mean()
