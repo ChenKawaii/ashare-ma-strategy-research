@@ -191,6 +191,10 @@ ADX（Average Directional Index，平均趋向指数）由 Welles Wilder 提出�
 
 ### 🧮 常态计算方法
 
+注：
+-  **ewm(alpha=1/period, adjust=False) 是 Pandas 提供的指数加权函数，类似于 Wilder 平滑。**
+- **St = (1 - α) * St-1 + α * Xt，其中 α = 1/N，N 是平滑周期，Xt 是当前值，St 是平滑值。**
+
 ADX 的计算分为五步：
 
 **第1步：计算 +DM 和 -DM**
