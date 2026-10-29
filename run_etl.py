@@ -37,7 +37,7 @@ def create_ods_table(conn):
             close REAL,
             volume REAL,
             etl_time TEXT NOT NULL,        -- 抽取时间，用于追溯
-            UNIQUE(symbol, trade_date, etl_time)
+            UNIQUE(symbol, trade_date)
         )
     ''')
     conn.commit()
@@ -77,27 +77,30 @@ def extract_to_ods(symbols, start_date, end_date):
             'volume': 'volume'
         })
 
-        inserted = 0
-        for _, row in df.iterrows():
-            try:
-                cursor.execute('''
-                    INSERT OR IGNORE INTO ods_daily_price
-                    (symbol, trade_date, open, high, low, close, volume, etl_time)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    symbol,
-                    str(row['trade_date']),
-                    float(row['open']),
-                    float(row['high']),
-                    float(row['low']),
-                    float(row['close']),
-                    float(row['volume']),
-                    etl_time
-                ))
-                inserted += 1
-            except Exception as e:
-                print(f"  [ODS] 写入异常（保留待清洗）: {e}")
+        records = [
+            (
+                symbol,
+                str(row['trade_date']),
+                float(row['open']),
+                float(row['high']),
+                float(row['low']),
+                float(row['close']),
+                float(row['volume']),
+                etl_time
+            )
+            for _, row in df.iterrows()
+        ]
 
+        try:
+            cursor.executemany('''
+                INSERT OR IGNORE INTO ods_daily_price
+                (symbol, trade_date, open, high, low, close, volume, etl_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', records)
+            inserted = cursor.rowcount
+        except Exception as e:
+            print(f"  [ODS] 批量写入异常: {e}")
+            inserted = 0
         conn.commit()
         print(f"  [ODS] {symbol} 写入 {inserted} 条，etl_time={etl_time}")
 
@@ -205,7 +208,10 @@ def build_dws():
             close,
             ROUND(ma5, 2) AS ma5,
             ROUND(ma20, 2) AS ma20,
-            ROUND((high - low) / close, 4) AS daily_volatility,
+            ROUND(
+                CASE WHEN close > 0 THEN (high - low) / close ELSE NULL END,
+                4
+            ) AS daily_volatility,
             ROUND(volume / vol_ma20, 4) AS volume_ratio
         FROM ma_calc
     ''')
