@@ -24,6 +24,9 @@ def init_db():
             UNIQUE(symbol, trade_date)
         )
     ''')
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_symbol_date ON daily_price (symbol, trade_date)
+    ''')
     conn.commit()
     return conn
 
@@ -44,7 +47,7 @@ def fetch_and_store(symbols, start_date, end_date):
 
         # 逐行写入，用 INSERT OR IGNORE 避免重复
         for _, row in df.iterrows():
-            cursor.execute('''
+            cursor.executemany('''
                 INSERT OR IGNORE INTO daily_price
                 (symbol, trade_date, open, high, low, close, volume)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -96,7 +99,7 @@ def query_ma_and_signal(conn, symbol, short=5, long=20):
                 ROWS BETWEEN {long - 1} PRECEDING AND CURRENT ROW
             ) AS ma_long
         FROM daily_price
-        WHERE symbol = ?
+
     ),
     signal_calc AS (
         SELECT
@@ -122,6 +125,7 @@ def query_ma_and_signal(conn, symbol, short=5, long=20):
             ELSE NULL
         END AS signal
     FROM signal_calc
+    WHERE symbol = ?
     ORDER BY trade_date
     '''
     return pd.read_sql_query(sql, conn, params=(symbol,))
