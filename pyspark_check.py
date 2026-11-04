@@ -1,11 +1,20 @@
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
+import os
 
+hadoop_home = r"C:\Users\admin\Desktop\czy_proj\py\aks\hadoop"
+os.environ["HADOOP_HOME"] = hadoop_home
+os.environ["hadoop.home.dir"] = hadoop_home
+os.environ["PATH"] = os.path.join(hadoop_home, "bin") + os.pathsep + os.environ["PATH"]
+os.environ["JAVA_TOOL_OPTIONS"] = f"-Djava.library.path={hadoop_home}\\bin"
 #1.创建session
+jar_path = r'C:\Users\admin\Desktop\czy_proj\py\aks\jdbc-jar\sqlite-jdbc-3.53.4.0.jar'
 spark = SparkSession.builder \
     .appName("StockDWS") \
     .master("local[*]") \
+    .config("spark.jars", jar_path) \
+    .config("spark.driver.extraClassPath", jar_path) \
     .getOrCreate()
 
 #2.从sqlite读取dwd_daily_price
@@ -13,15 +22,15 @@ spark = SparkSession.builder \
 import pandas as pd
 import sqlite3
 
-conn = sqlite3.connect('stock_data.db')
-pdf = pd.read_sql_query("SELECT * FROM dwd_daily_price", conn)
-conn.close()
+# conn = sqlite3.connect('stock_data.db')
+# pdf = pd.read_sql_query("SELECT * FROM dwd_daily_price", conn)
+# conn.close()
 
-df = spark.createDataFrame(pdf)
+# df = spark.createDataFrame(pdf)
 
 # 方式二：用 JDBC 直接读（需要下载 sqlite-jdbc 驱动，更“工程化”）
-# df = spark.read.format("jdbc").option("url", "jdbc:sqlite:stock_data.db") \
-#     .option("dbtable", "dwd_daily_price").load()
+df = spark.read.format("jdbc").option("url", "jdbc:sqlite:stock_data.db") \
+    .option("dbtable", "dwd_daily_price").option("driver", "org.sqlite.JDBC").load()
 
 
 # 3. 用窗口函数算 MA5、MA20（和 SQLite 的逻辑完全对应）
