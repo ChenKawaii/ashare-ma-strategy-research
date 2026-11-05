@@ -516,6 +516,19 @@ ADS 区间统计结果：
 SQL 与 Pandas 的适用场景：数据存储在数仓时用 SQL 在库内计算，避免拉全量数据到内存；复杂策略回测用 Pandas 逐行模拟交易。两者互补，不是替代关系。
 
 
+### PySpark 重写验证
+用 PySpark 的 DataFrame API 和 Window 函数重写了 DWS 层的窗口计算，通过 JDBC 直接读取 SQLite 的 `dwd_daily_price` 表：
+
+```python
+merged = spark_df.merge(sqlite_df, on=['symbol', 'trade_date'], suffixes=('_spark', '_sqlite'))
+diff = merged[(merged['ma5_spark'] - merged['ma5_sqlite']).abs() > 0.01]
+```
+
+**验证结果**：PySpark 版本与 SQLite 版本逐条对比，2908 条记录中 MA5 不一致记录数为 0，验证了 Window.partitionBy().orderBy().rowsBetween() 与 SQL ROWS BETWEEN N PRECEDING AND CURRENT ROW 的语义等价性。结果以 Parquet 格式输出。
+
+说明：本项目数据量（2908 条）单机 SQLite 完全够用，PySpark 重写的目的不是“为了用 Spark 而用 Spark”，而是验证对分布式窗口函数编程模型的理解，以及两套引擎的等价性。
+
+
 ### **SQL vs Pandas 的适用场景**
 
 | **场景** | **推荐方式** | **原因** |

@@ -50,4 +50,25 @@ df_dws.select("symbol", "trade_date", "close", "ma5", "ma20", "daily_volatility"
 # 5. 存成 Parquet（Spark 的列式存储格式，比 CSV 快）
 df_dws.write.mode("overwrite").parquet("dws_stock_daily_summary_spark")
 
-spark.stop()
+# spark.stop()
+
+import pandas as pd
+
+# Spark 输出
+spark_df = pd.read_parquet("dws_stock_daily_summary_spark")
+spark_df = spark_df.sort_values(['symbol', 'trade_date'])
+
+# SQLite 结果
+import sqlite3
+conn = sqlite3.connect('stock_data.db')
+sqlite_df = pd.read_sql_query(
+    "SELECT symbol, trade_date, ma5, ma20 FROM dws_stock_daily_summary",
+    conn
+)
+conn.close()
+
+# 对比
+merged = spark_df.merge(sqlite_df, on=['symbol', 'trade_date'], suffixes=('_spark', '_sqlite'))
+diff = merged[(merged['ma5_spark'] - merged['ma5_sqlite']).abs() > 0.01]
+print(f"MA5 不一致的记录数: {len(diff)}")
+print(f"总记录数: {len(merged)}")
